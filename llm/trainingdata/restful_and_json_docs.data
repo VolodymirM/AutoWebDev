@@ -1,0 +1,990 @@
+API design
+San alt seo
+Considerations
+RESTful API design
+Generic data access APIs: OData and GraphQL considerations
+Map REST to DDD patterns
+Taispeáin 4 eile
+A microservices architecture requires good API design because all data exchange between services occurs either through messages or API calls. Efficient APIs help prevent chatty input/output (I/O). Independent teams design services, so you must define API semantics and versioning schemes clearly to avoid breaking other services when you update a service.
+
+API design for microservices.
+
+The diagram shows a flow between a client and three back-end services through a central scheduler service. An arrow labeled HTTP POST points from the client to the scheduler service, with a response code 202 (Accepted) next to the arrow. From the scheduler service, three arrows point to separate services on the right. The top arrow points to user accounts service, labeled HTTP GET, with a response code 200 (OK). The middle arrow points to package service, labeled HTTP PUT, with a response code 201 (Created). The bottom arrow points to delivery service, also labeled HTTP PUT, with a response code 201 (Created).
+
+You must distinguish between the two types of APIs:
+
+Public APIs that client applications call
+Back-end APIs for interservice communication
+These two types have different requirements. A public API must be compatible with client applications, like browser applications or native mobile applications. Most public APIs use REST over HTTP. But back-end APIs must account for network performance. Depending on the granularity of your services, interservice communication can result in too much network traffic. Services can quickly become I/O bound, so considerations like serialization speed and payload size become more important. Some popular alternatives to REST over HTTP include gRPC Remote Procedure Call (gRPC), Apache Avro, and Apache Thrift. These protocols support binary serialization and improve efficiency compared to HTTP.
+
+Considerations
+Consider the following factors when you decide how to implement an API:
+
+REST versus Remote Procedure Call (RPC): Consider the trade-offs between a REST-style interface versus an RPC-style interface.
+
+REST models resources, which provides an intuitive way to express the domain model. It defines a uniform interface based on HTTP verbs, which encourages evolvability. It includes well-defined semantics for idempotency, side effects, and response codes. REST also enforces stateless communication, which improves scalability.
+
+RPC focuses on operations or commands. RPC interfaces resemble local method calls, so they can lead to overly chatty APIs. But RPC doesn't require chatty communication. To avoid that outcome, you must carefully design the interface.
+
+For a RESTful interface, most teams choose REST over HTTP via JSON. For an RPC-style interface, popular frameworks include gRPC, Avro, and Thrift.
+
+Efficiency: Consider efficiency in terms of speed, memory, and payload size. Typically a gRPC-based interface is faster than REST over HTTP.
+
+Interface definition language (IDL): Use an IDL to define the methods, parameters, and return values of an API. An IDL can generate client code, serialization code, and API documentation. API testing tools consume IDLs. Frameworks like gRPC, Avro, and Thrift define their own IDL specifications. REST over HTTP doesn't have a standard IDL format, but a common choice is OpenAPI (formerly Swagger). You can also create an HTTP REST API without using a formal definition language, but you lose the benefits of code generation and testing.
+
+Serialization: Choose how to serialize objects over the wire. Options include text-based formats like JSON and binary formats like protocol buffer. Binary formats are faster than text-based formats. But JSON provides broader interoperability because most languages and frameworks support JSON serialization. Some serialization formats require a fixed schema or a compiled schema definition file. In those cases, you must incorporate this step into your build process. For more information, see Message encoding best practices.
+
+Framework and language support: Nearly every framework and language supports HTTP. Avro, gRPC, and Thrift provide libraries for C++, C#, Java, and Python. Thrift and gRPC also support Go.
+
+Compatibility and interoperability: If you choose a protocol like gRPC, you might need a protocol translation layer between the public API and the back end. A gateway can perform that function. If you use a service mesh, check protocol compatibility with the service mesh. For example, Linkerd has built-in support for HTTP, Thrift, and gRPC.
+
+Use REST over HTTP unless you need the performance benefits of a binary protocol. REST over HTTP doesn't require special libraries and creates minimal coupling because callers don't need a client stub to communicate with the service. The REST ecosystem includes tools to support schema definitions, testing, and monitoring of RESTful HTTP endpoints. HTTP also works with browser clients, so you don't need a protocol translation layer between the client and the back end.
+
+If you choose REST over HTTP, do performance and load testing early in the development process to check whether it performs adequately for your scenario.
+
+RESTful API design
+The following resources can help you design RESTful APIs:
+
+API design
+API implementation
+Microsoft REST API guidelines
+Consider the following factors:
+
+Avoid APIs that expose internal implementation details or mirror an internal database schema. The API should model the domain and serve as a contract between services. Ideally, you should only change the API when you add new functionality, not when you refactor code or change the database schema.
+
+Different types of client, like mobile applications and desktop web browsers, might require different payload sizes or interaction patterns. Consider using the Backends for Frontends pattern to create separate back ends for each client. Each back end exposes an optimal interface for that client.
+
+For operations that cause side effects, consider making them idempotent and implementing them as PUT methods. This approach enables safe retries and improves resiliency. For more information, see Interservice communication.
+
+HTTP methods can have asynchronous semantics, where the method returns a response immediately but the service carries out the operation asynchronously. In that case, the method should return an HTTP 202 response code. This code indicates that the request was accepted for processing but not yet processed. For more information, see Asynchronous Request-Reply pattern.
+
+Generic data access APIs: OData and GraphQL considerations
+REST APIs provide a structured approach to expose resources, but some scenarios require more flexible data access patterns. Query-oriented APIs like OData and GraphQL provide alternatives that let clients specify exactly what data they need. This approach can potentially reduce over-fetching and improve performance. These types of APIs prioritize read operations. Mutation operations, like create, update, and delete, can be more complex to implement, but various frameworks can manage these operations effectively.
+
+When to consider generic data access APIs
+Use a generic data access pattern in the following situations:
+
+Clients have diverse data requirements that result in many specialized REST endpoints or specialized behavior.
+
+You need to support complex querying, filtering, and sorting operations across multiple data entities.
+
+Over-fetching is a significant performance concern, especially for mobile or bandwidth-constrained clients.
+
+Avoid generic data access APIs in the following situations:
+
+Your microservices architecture emphasizes strict service boundaries and domain encapsulation.
+
+You need fine-grained control over data access patterns and security policies.
+
+Your APIs primarily support simple create, read, update, and delete (CRUD) operations or well-defined business workflows.
+
+REST already meets your network performance and payload requirements.
+
+Security requirements demand explicit endpoint definitions to minimize attack surfaces.
+
+Your team lacks experience with query language implementation and optimization.
+
+Map REST to DDD patterns
+Patterns like entity, aggregate, and value object define constraints for objects in a domain model. Many domain-driven design (DDD) discussions describe these patterns by using object-oriented (OO) language concepts like constructors or property getters and setters. For example, value objects are supposed to be immutable. In an OO programming language, you enforce this constraint by assigning the values in the constructor and making the properties read-only:
+
+ts
+export class Location {
+    readonly latitude: number;
+    readonly longitude: number;
+
+    constructor(latitude: number, longitude: number) {
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+            throw new RangeError('latitude must be between -90 and 90');
+        }
+        if (!Number.isFinite(latitude) || longitude < -180 || longitude > 180) {
+            throw new RangeError('longitude must be between -180 and 180');
+        }
+        this.latitude = latitude;
+        this.longitude = longitude;
+    }
+}
+These coding practices play an important role in building a traditional monolithic application. In a large code base, many subsystems might use the Location object, so the object must enforce the correct behavior.
+
+The Repository pattern provides another example. This pattern ensures that other parts of the application don't make direct reads or writes to the data store.
+
+Diagram of a drone repository.
+
+The diagram shows the data flow between a drone entity, a drone repository, and a data store. An arrow labeled GetDrone() points from the drone entity toward the drone repository, which indicates a request to retrieve drone data. Another arrow points back from the drone repository to the drone entity, which shows the return of the requested data. Two other arrows connect the drone repository to the data store. Two arrows indicate bidirectional communication between the data store and the drone repository.
+
+In a microservices architecture, services don't share the same code base or a data store. Instead, they communicate through APIs. For example, a scheduler service might request information about a drone from a drone service. The drone service defines its internal drone model through code. But the scheduler can't access these details directly. Instead, the scheduler receives a representation of the drone entity—like a JSON object in an HTTP response.
+
+This example applies well to the aircraft and aerospace industries.
+
+Diagram of the Drone service.
+
+The diagram shows the interaction between a scheduler service and a drone service, which communicates with a data store. On the left, a scheduler service sends an HTTP GET request to the drone service with the endpoint /api/drone. An arrow points back to the scheduler service, labeled with a response that contains JSON followed by three periods. The drone service contains an HTTP request handler and a repository. The HTTP request handler receives the GET request. The repository connects to the data store. Two arrows indicate bidirectional communication between the repository and the data store. Inside the drone service, two arrows indicate bidirectional communication between the HTTP request handler and the repository. The arrow from the repository to the HTTP request handler is labeled drone (entity), which represents the domain object returned by the repository.
+
+The scheduler service can't modify the drone service's internal models or write to the drone service's data store. So the code that implements the drone service has a smaller exposed surface area compared to code in a traditional monolith. If the drone service defines a Location class, the scope of that class is limited—no other service directly consumes the class.
+
+For these reasons, this guidance doesn't focus much on coding practices related to tactical DDD patterns. But you can model many DDD patterns through REST APIs.
+
+The following examples show how REST concepts align with common DDD constructs:
+
+Aggregates map naturally to resources in REST. For example, a delivery API might expose a delivery aggregate as a resource.
+
+Aggregates define consistency boundaries. Operations on aggregates shouldn't leave an aggregate in an inconsistent state. Avoid creating APIs that let a client manipulate the internal state of an aggregate. Instead, favor coarse-grained APIs that expose aggregates as resources.
+
+Entities have unique identities. In REST, resources have unique identifiers in the form of URLs. Create resource URLs that correspond to an entity's domain identity. The mapping from URL to domain identity may be opaque to clients.
+
+Child entities of an aggregate can be reached from the root entity. If you follow hypermedia as the engine of application state (HATEOAS) principles, child entities can be reached via links in the representation of the parent entity.
+
+Value objects are immutable. To do updates, replace the entire value object. In REST, implement updates through PUT or PATCH requests.
+
+A repository lets clients query, add, or remove objects in a collection. The repository abstracts the details of the underlying data store. In REST, a collection can be a distinct resource that includes methods for querying the collection or adding new entities to the collection.
+
+When you design APIs, think about how they express the domain model, not only the data inside the model. Also consider the business operations and the constraints on the data.
+
+DDD concept	REST equivalent	Example
+Aggregate	Resource	{ "1":1234, "status":"pending"... }
+Identity	URL	https://delivery-service/deliveries/1
+Child entities	Links	{ "href": "/deliveries/1/confirmation" }
+Update value objects	PUT or PATCH	PUT https://delivery-service/deliveries/1/dropoff
+Repository	Collection	https://delivery-service/deliveries?status=pending
+API versioning
+An API serves as a contract between a service and clients or consumers of that service. API changes can break external clients or microservices that depend on the API. Minimize the number of API changes that you make. Changes in the underlying implementation often don't require changes to the API. But at some point, you likely want to add new features or new capabilities that require changing an existing API.
+
+Make API changes backward compatible when possible. For example, avoid removing a field from a model. That change can break clients that expect the field to exist. Adding a field doesn't break compatibility because clients should ignore fields that they don't recognize in a response. But the service must handle requests from older clients that omit the new field.
+
+Support versioning in your API contract. If you introduce a breaking API change, introduce a new API version. Continue to support the previous version, and let clients select which version to call. One way to do versioning is to expose both versions in the same service. Another option is to run two versions of the service side-by-side and route requests to one or the other version based on HTTP routing rules.
+
+Diagram showing two options for supporting versioning.
+
+The diagram has two parts. The left side shows a service that supports two versions. The v1 client and the v2 client both point to one service. The right side shows a side-by-side deployment. The v1 client points to a v1 service, and the v2 client points to a v2 service.
+
+Multiple versions add cost in terms of developer time, testing, and operational overhead. Deprecate old versions as quickly as possible. For internal APIs, the team that owns the API can work with other teams to help them migrate to the new version. Cross-team governance process is useful here. External (public) APIs can be harder to deprecate an API version, especially if external or native client applications consume the API.
+
+When a service implementation changes, tag the change with a version. The version provides important information to help troubleshoot errors. This approach supports root cause analysis because you know which version of the service is called. Consider using semantic versioning for service versions. Semantic versioning uses a MAJOR.MINOR.PATCH format. But clients should only select an API by the major version number, or by the minor version if there are significant but nonbreaking changes between minor versions. For example, clients might choose between version 1 and version 2 of an API, but they shouldn't choose version 2.1.3. If you allow that level of granularity, you risk having to support too many versions.
+
+For more information, see Implement versioning for a RESTful web API.
+
+Idempotent operations
+An operation is idempotent if you can call it multiple times without producing more side effects after the first call. Idempotency serves as a useful resiliency strategy because it lets an upstream service to safely invoke an operation multiple times. For more information, see Distributed transactions.
+
+The HTTP specification states that GET, PUT, and DELETE methods must be idempotent. POST methods aren't guaranteed to be idempotent. If a POST method creates a new resource, there's generally no guarantee that this operation is idempotent. The specification defines idempotent in the following way:
+
+A request method is considered idempotent if the intended effect on the server of multiple identical requests with that method is the same as the effect for a single such request. (RFC 7231)
+
+Understand the difference between PUT and POST semantics when you create a new entity. In both cases, the client sends a representation of an entity in the request body. But the meaning of the uniform resource identifier (URI) is different.
+
+For a POST method, the URI represents a parent resource of the new entity, like a collection. For example, to create a new delivery, the URI might be /api/deliveries. The server creates the entity and assigns it a new URI, like /api/deliveries/39660. This URI is returned in the Location header of the response. Each time the client sends a request, the server creates a new entity that has a new URI.
+
+For a PUT method, the URI identifies the entity. If an existing entity has that URI, the server replaces the existing entity with the version in the request. If no entity uses that URI, the server creates one. For example, suppose the client sends a PUT request to api/deliveries/39660. If no delivery resource uses that URI, the server creates a new one. If the client sends the same request again, the server replaces the existing entity.
+
+The delivery service uses the following code to implement the PUT method:
+
+C#
+[HttpPut("{id}")]
+[ProducesResponseType<Delivery>(StatusCodes.Status201Created)]
+[ProducesResponseType(StatusCodes.Status204NoContent)]
+public async Task<IActionResult> Put([FromBody]Delivery delivery, string id)
+{
+    logger.LogInformation("In Put action with delivery {Id}: {@DeliveryInfo}", id, delivery.ToLogInfo());
+    try
+    {
+        var internalDelivery = delivery.ToInternal();
+
+        // Create the new delivery entity.
+        await deliveryRepository.CreateAsync(internalDelivery);
+
+        // Create a delivery status event.
+        var deliveryStatusEvent = new DeliveryStatusEvent { DeliveryId = delivery.Id, Stage = DeliveryEventType.Created };
+        await deliveryStatusEventRepository.AddAsync(deliveryStatusEvent);
+
+        // Return HTTP 201 (Created)
+        return CreatedAtRoute("GetDelivery", new { id= delivery.Id }, delivery);
+    }
+    catch (DuplicateResourceException)
+    {
+        // This method mainly creates deliveries. If the delivery already exists, update it.
+        logger.LogInformation("Updating resource with delivery id: {DeliveryId}", id);
+
+        var internalDelivery = delivery.ToInternal();
+        await deliveryRepository.UpdateAsync(id, internalDelivery);
+
+        // Return HTTP 204 (No Content)
+        return NoContent();
+    }
+}
+Most requests create a new entity, so the method expects the creation to succeed and calls CreateAsync on the repository object. Then the method handles duplicate-resource exceptions by updating the resource instead.
+<END>
+
+Use API gateways in microservices
+San alt seo
+What is an API gateway?
+Why use an API gateway?
+How to use an API gateway
+API gateway options
+Taispeáin 3 eile
+Azure Application Gateway
+Azure API Management
+In a microservices architecture, a client might interact with more than one front-end service. Given this fact, how does a client know what endpoints to call? What happens when new services are introduced, or existing services are refactored? How do services handle SSL termination, mutual TLS, authentication, and other concerns? An API gateway can help to address these challenges.
+
+Diagram of an API gateway
+
+Download a Visio file of this architecture.
+
+What is an API gateway?
+An API gateway provides a centralized entry point for managing interactions between clients and application services. It acts as a reverse proxy and routes clients requests to the appropriate services. It can also perform various cross-cutting tasks such as authentication, SSL termination, mutual TLS, and rate limiting.
+
+Why use an API gateway?
+An API gateway simplifies communication, enhances client interactions, and centralizes the management of common service-level responsibilities. It acts as an intermediary, and it prevents direct exposure of application services to clients. Without an API gateway, clients must communicate directly with individual application services, which can introduce the following challenges:
+
+Complex client code: It can result in complex client code. Clients must track multiple endpoints and handle failures resiliently.
+
+Tight coupling: It creates coupling between the client and the backend. Clients need to understand decomposition of individual services, complicating service maintenance and refactoring.
+
+Increased latency: A single operation might require calls to multiple services. The result can be multiple network round trips between the client and the server, adding significant latency.
+
+Redundant handling of concerns: Each public-facing service must handle concerns such as authentication, SSL, and client rate limiting.
+
+Protocol limitations: Services must expose a client-friendly protocol such as HTTP or WebSocket. This exposure limits communication protocols options.
+
+Expanded attack surface: Public endpoints increase the potential attack surface and require hardening.
+
+How to use an API gateway
+An API gateway can be tailored to your application’s requirements by using specific design patterns. These design patterns address key functionality such as routing, request aggregation, and cross-cutting concerns:
+
+Gateway routing. You can use an API gateway as a reverse proxy to route client requests to different application services. The API gateway uses layer-7 routing and provides a single endpoint for clients to use. Use API gateway routing when you want to decouple clients from application services.
+
+Gateway aggregation. You can use the API gateway to aggregate multiple client requests into a single request. Use this pattern when a single operation requires calls to multiple application services. In API aggregation, the client sends one request to the API gateway. Then, the API gateway routes requests to the various services required for the operations. Finally, the API gateway aggregates the results and sends them back to the client. The aggregation helps reduce chattiness between the client and the application services.
+
+Gateway offloading. You can use an API gateway to provide cross-cutting functionality, so individual services don't have to provide it. It can be useful to consolidate cross-cutting functionality into one place, rather than making every service responsible. Here are examples of functionality that you could offload to an API gateway:
+
+SSL termination
+Mutual TLS
+Authentication
+IP allowlist or blocklist
+Client rate limiting (throttling)
+Logging and monitoring
+Response caching
+Web application firewall
+GZIP compression
+Servicing static content
+API gateway options
+Here are some options for implementing an API gateway in your application.
+
+Reverse proxy server. Nginx and HAProxy are open-source reverse proxy offerings. They support features such as load balancing, SSL termination, and layer-7 routing. They have free versions and paid editions that provide extra features and support options. These products are mature with rich feature sets, high performance, and extensible.
+
+Service mesh ingress controller. If you use a service mesh, evaluate the ingress controller’s features specific to that service mesh. Check for AKS-supported add-ons like Istio and Open Service Mesh. Look for third-party open-source projects like Linkerd or Consul Connect. For example, the Istio ingress controller supports layer 7 routing, HTTP redirects, retries, and other features.
+
+Azure Application Gateway. Application Gateway is a managed load balancing service. It provides perform layer-7 routing, SSL termination, and a web application firewall (WAF).
+
+Azure Front Door. Azure Front Door is a content delivery network (CDN). It uses global and local points of presence (PoPs) to provide fast, reliable, and secure access to your applications' static and dynamic web content globally.
+
+Azure API Management. API Management is a managed solution for publishing APIs to external and internal customers. It provides features to manage public-facing APIs, including rate limiting, IP restrictions, and authentication using Microsoft Entra ID or other identity providers. API Management doesn't perform any load balancing, so you should use it with a load balancer, such as Azure Application Gateway, or a reverse proxy. For more information, see API Management with Azure Application Gateway.
+
+Choose an API gateway technology
+When selecting an API gateway, consider the following factors:
+
+Support all requirements. Choose an API gateway that supports your required features. All the previous API gateway options support layer-7 routing. But their support for other features, such as authentication, rate limiting, and SSL termination, can vary. Assess whether a single gateway meets your needs or if multiple gateways are necessary.
+
+Prefer built-in offerings. Use built-in API gateway and ingress solutions provided by your platform, such as Azure Container Apps and AKS, whenever they meet your security and control requirements. Only use a custom gateway if the built-in options lack necessary flexibility. Custom solutions require a governance model, such as GitOps, to manage its lifecycle effectively.
+
+Choose the right deployment model. Use managed services like Azure Application Gateway and Azure API Management for reduced operational overhead. If you use general-purpose reverse proxies or load balancers, deploy them in a way that aligns with your architecture. You can deploy general-purpose API gateways to dedicated virtual machines or inside an AKS cluster in their Ingress Controller offerings. To isolate the API gateway from the workload, you can deploy them outside the cluster, but this deployment increases the management complexity.
+
+Manage changes. When you update services or add new ones, you might need to update the gateway routing rules. Implement processes or workflows to manage routing rules when adding or modifying services, SSL certificates, IP allowlists, and security configurations. Use infrastructure-as-code and automation tools to streamline API gateway management.
+<END>
+
+The JavaScript Object Notation (JSON) Data Interchange Format
+
+Abstract
+
+   JavaScript Object Notation (JSON) is a lightweight, text-based,
+   language-independent data interchange format.  It was derived from
+   the ECMAScript Programming Language Standard.  JSON defines a small
+   set of formatting rules for the portable representation of structured
+   data.
+
+   This document removes inconsistencies with other specifications of
+   JSON, repairs specification errors, and offers experience-based
+   interoperability guidance.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc8259.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Bray                         Standards Track                    [Page 1]
+
+RFC 8259                          JSON                     December 2017
+
+
+Copyright Notice
+
+   Copyright (c) 2017 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Simplified BSD License text as described in Section 4.e of
+   the Trust Legal Provisions and are provided without warranty as
+   described in the Simplified BSD License.
+
+   This document may contain material from IETF Documents or IETF
+   Contributions published or made publicly available before November
+   10, 2008.  The person(s) controlling the copyright in some of this
+   material may not have granted the IETF Trust the right to allow
+   modifications of such material outside the IETF Standards Process.
+   Without obtaining an adequate license from the person(s) controlling
+   the copyright in such materials, this document may not be modified
+   outside the IETF Standards Process, and derivative works of it may
+   not be created outside the IETF Standards Process, except to format
+   it for publication as an RFC or to translate it into languages other
+   than English.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Bray                         Standards Track                    [Page 2]
+
+RFC 8259                          JSON                     December 2017
+
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Conventions Used in This Document . . . . . . . . . . . .   4
+     1.2.  Specifications of JSON  . . . . . . . . . . . . . . . . .   4
+     1.3.  Introduction to This Revision . . . . . . . . . . . . . .   5
+   2.  JSON Grammar  . . . . . . . . . . . . . . . . . . . . . . . .   5
+   3.  Values  . . . . . . . . . . . . . . . . . . . . . . . . . . .   6
+   4.  Objects . . . . . . . . . . . . . . . . . . . . . . . . . . .   6
+   5.  Arrays  . . . . . . . . . . . . . . . . . . . . . . . . . . .   7
+   6.  Numbers . . . . . . . . . . . . . . . . . . . . . . . . . . .   7
+   7.  Strings . . . . . . . . . . . . . . . . . . . . . . . . . . .   8
+   8.  String and Character Issues . . . . . . . . . . . . . . . . .   9
+     8.1.  Character Encoding  . . . . . . . . . . . . . . . . . . .   9
+     8.2.  Unicode Characters  . . . . . . . . . . . . . . . . . . .  10
+     8.3.  String Comparison . . . . . . . . . . . . . . . . . . . .  10
+   9.  Parsers . . . . . . . . . . . . . . . . . . . . . . . . . . .  10
+   10. Generators  . . . . . . . . . . . . . . . . . . . . . . . . .  10
+   11. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  11
+   12. Security Considerations . . . . . . . . . . . . . . . . . . .  12
+   13. Examples  . . . . . . . . . . . . . . . . . . . . . . . . . .  12
+   14. References  . . . . . . . . . . . . . . . . . . . . . . . . .  14
+     14.1.  Normative References . . . . . . . . . . . . . . . . . .  14
+     14.2.  Informative References . . . . . . . . . . . . . . . . .  14
+   Appendix A.  Changes from RFC 7159  . . . . . . . . . . . . . . .  16
+   Contributors  . . . . . . . . . . . . . . . . . . . . . . . . . .  16
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  16
+
+1.  Introduction
+
+   JavaScript Object Notation (JSON) is a text format for the
+   serialization of structured data.  It is derived from the object
+   literals of JavaScript, as defined in the ECMAScript Programming
+   Language Standard, Third Edition [ECMA-262].
+
+   JSON can represent four primitive types (strings, numbers, booleans,
+   and null) and two structured types (objects and arrays).
+
+   A string is a sequence of zero or more Unicode characters [UNICODE].
+   Note that this citation references the latest version of Unicode
+   rather than a specific release.  It is not expected that future
+   changes in the Unicode specification will impact the syntax of JSON.
+
+   An object is an unordered collection of zero or more name/value
+   pairs, where a name is a string and a value is a string, number,
+   boolean, null, object, or array.
+
+   An array is an ordered sequence of zero or more values.
+
+
+
+Bray                         Standards Track                    [Page 3]
+
+RFC 8259                          JSON                     December 2017
+
+
+   The terms "object" and "array" come from the conventions of
+   JavaScript.
+
+   JSON's design goals were for it to be minimal, portable, textual, and
+   a subset of JavaScript.
+
+1.1.  Conventions Used in This Document
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   The grammatical rules in this document are to be interpreted as
+   described in [RFC5234].
+
+1.2.  Specifications of JSON
+
+   This document replaces [RFC7159].  [RFC7159] obsoleted [RFC4627],
+   which originally described JSON and registered the media type
+   "application/json".
+
+   JSON is also described in [ECMA-404].
+
+   The reference to ECMA-404 in the previous sentence is normative, not
+   with the usual meaning that implementors need to consult it in order
+   to understand this document, but to emphasize that there are no
+   inconsistencies in the definition of the term "JSON text" in any of
+   its specifications.  Note, however, that ECMA-404 allows several
+   practices that this specification recommends avoiding in the
+   interests of maximal interoperability.
+
+   The intent is that the grammar is the same between the two documents,
+   although different descriptions are used.  If there is a difference
+   found between them, ECMA and the IETF will work together to update
+   both documents.
+
+   If an error is found with either document, the other should be
+   examined to see if it has a similar error; if it does, it should be
+   fixed, if possible.
+
+   If either document is changed in the future, ECMA and the IETF will
+   work together to ensure that the two documents stay aligned through
+   the change.
+
+
+
+
+
+
+Bray                         Standards Track                    [Page 4]
+
+RFC 8259                          JSON                     December 2017
+
+
+1.3.  Introduction to This Revision
+
+   In the years since the publication of RFC 4627, JSON has found very
+   wide use.  This experience has revealed certain patterns that, while
+   allowed by its specifications, have caused interoperability problems.
+
+   Also, a small number of errata have been reported regarding RFC 4627
+   (see RFC Errata IDs 607 [Err607] and 3607 [Err3607]) and regarding
+   RFC 7159 (see RFC Errata IDs 3915 [Err3915], 4264 [Err4264], 4336
+   [Err4336], and 4388 [Err4388]).
+
+   This document's goal is to apply the errata, remove inconsistencies
+   with other specifications of JSON, and highlight practices that can
+   lead to interoperability problems.
+
+2.  JSON Grammar
+
+   A JSON text is a sequence of tokens.  The set of tokens includes six
+   structural characters, strings, numbers, and three literal names.
+
+   A JSON text is a serialized value.  Note that certain previous
+   specifications of JSON constrained a JSON text to be an object or an
+   array.  Implementations that generate only objects or arrays where a
+   JSON text is called for will be interoperable in the sense that all
+   implementations will accept these as conforming JSON texts.
+
+      JSON-text = ws value ws
+
+   These are the six structural characters:
+
+      begin-array     = ws %x5B ws  ; [ left square bracket
+
+      begin-object    = ws %x7B ws  ; { left curly bracket
+
+      end-array       = ws %x5D ws  ; ] right square bracket
+
+      end-object      = ws %x7D ws  ; } right curly bracket
+
+      name-separator  = ws %x3A ws  ; : colon
+
+      value-separator = ws %x2C ws  ; , comma
+
+
+
+
+
+
+
+
+
+
+Bray                         Standards Track                    [Page 5]
+
+RFC 8259                          JSON                     December 2017
+
+
+   Insignificant whitespace is allowed before or after any of the six
+   structural characters.
+
+      ws = *(
+              %x20 /              ; Space
+              %x09 /              ; Horizontal tab
+              %x0A /              ; Line feed or New line
+              %x0D )              ; Carriage return
+
+3.  Values
+
+   A JSON value MUST be an object, array, number, or string, or one of
+   the following three literal names:
+
+      false
+      null
+      true
+
+   The literal names MUST be lowercase.  No other literal names are
+   allowed.
+
+      value = false / null / true / object / array / number / string
+
+      false = %x66.61.6c.73.65   ; false
+
+      null  = %x6e.75.6c.6c      ; null
+
+      true  = %x74.72.75.65      ; true
+
+4.  Objects
+
+   An object structure is represented as a pair of curly brackets
+   surrounding zero or more name/value pairs (or members).  A name is a
+   string.  A single colon comes after each name, separating the name
+   from the value.  A single comma separates a value from a following
+   name.  The names within an object SHOULD be unique.
+
+      object = begin-object [ member *( value-separator member ) ]
+               end-object
+
+      member = string name-separator value
+
+   An object whose names are all unique is interoperable in the sense
+   that all software implementations receiving that object will agree on
+   the name-value mappings.  When the names within an object are not
+   unique, the behavior of software that receives such an object is
+   unpredictable.  Many implementations report the last name/value pair
+   only.  Other implementations report an error or fail to parse the
+
+
+
+Bray                         Standards Track                    [Page 6]
+
+RFC 8259                          JSON                     December 2017
+
+
+   object, and some implementations report all of the name/value pairs,
+   including duplicates.
+
+   JSON parsing libraries have been observed to differ as to whether or
+   not they make the ordering of object members visible to calling
+   software.  Implementations whose behavior does not depend on member
+   ordering will be interoperable in the sense that they will not be
+   affected by these differences.
+
+5.  Arrays
+
+   An array structure is represented as square brackets surrounding zero
+   or more values (or elements).  Elements are separated by commas.
+
+   array = begin-array [ value *( value-separator value ) ] end-array
+
+   There is no requirement that the values in an array be of the same
+   type.
+
+6.  Numbers
+
+   The representation of numbers is similar to that used in most
+   programming languages.  A number is represented in base 10 using
+   decimal digits.  It contains an integer component that may be
+   prefixed with an optional minus sign, which may be followed by a
+   fraction part and/or an exponent part.  Leading zeros are not
+   allowed.
+
+   A fraction part is a decimal point followed by one or more digits.
+
+   An exponent part begins with the letter E in uppercase or lowercase,
+   which may be followed by a plus or minus sign.  The E and optional
+   sign are followed by one or more digits.
+
+   Numeric values that cannot be represented in the grammar below (such
+   as Infinity and NaN) are not permitted.
+
+      number = [ minus ] int [ frac ] [ exp ]
+
+      decimal-point = %x2E       ; .
+
+      digit1-9 = %x31-39         ; 1-9
+
+      e = %x65 / %x45            ; e E
+
+      exp = e [ minus / plus ] 1*DIGIT
+
+      frac = decimal-point 1*DIGIT
+
+
+
+Bray                         Standards Track                    [Page 7]
+
+RFC 8259                          JSON                     December 2017
+
+
+      int = zero / ( digit1-9 *DIGIT )
+
+      minus = %x2D               ; -
+
+      plus = %x2B                ; +
+
+      zero = %x30                ; 0
+
+   This specification allows implementations to set limits on the range
+   and precision of numbers accepted.  Since software that implements
+   IEEE 754 binary64 (double precision) numbers [IEEE754] is generally
+   available and widely used, good interoperability can be achieved by
+   implementations that expect no more precision or range than these
+   provide, in the sense that implementations will approximate JSON
+   numbers within the expected precision.  A JSON number such as 1E400
+   or 3.141592653589793238462643383279 may indicate potential
+   interoperability problems, since it suggests that the software that
+   created it expects receiving software to have greater capabilities
+   for numeric magnitude and precision than is widely available.
+
+   Note that when such software is used, numbers that are integers and
+   are in the range [-(2**53)+1, (2**53)-1] are interoperable in the
+   sense that implementations will agree exactly on their numeric
+   values.
+
+7.  Strings
+
+   The representation of strings is similar to conventions used in the C
+   family of programming languages.  A string begins and ends with
+   quotation marks.  All Unicode characters may be placed within the
+   quotation marks, except for the characters that MUST be escaped:
+   quotation mark, reverse solidus, and the control characters (U+0000
+   through U+001F).
+
+   Any character may be escaped.  If the character is in the Basic
+   Multilingual Plane (U+0000 through U+FFFF), then it may be
+   represented as a six-character sequence: a reverse solidus, followed
+   by the lowercase letter u, followed by four hexadecimal digits that
+   encode the character's code point.  The hexadecimal letters A through
+   F can be uppercase or lowercase.  So, for example, a string
+   containing only a single reverse solidus character may be represented
+   as "\u005C".
+
+   Alternatively, there are two-character sequence escape
+   representations of some popular characters.  So, for example, a
+   string containing only a single reverse solidus character may be
+   represented more compactly as "\\".
+
+
+
+
+Bray                         Standards Track                    [Page 8]
+
+RFC 8259                          JSON                     December 2017
+
+
+   To escape an extended character that is not in the Basic Multilingual
+   Plane, the character is represented as a 12-character sequence,
+   encoding the UTF-16 surrogate pair.  So, for example, a string
+   containing only the G clef character (U+1D11E) may be represented as
+   "\uD834\uDD1E".
+
+      string = quotation-mark *char quotation-mark
+
+      char = unescaped /
+          escape (
+              %x22 /          ; "    quotation mark  U+0022
+              %x5C /          ; \    reverse solidus U+005C
+              %x2F /          ; /    solidus         U+002F
+              %x62 /          ; b    backspace       U+0008
+              %x66 /          ; f    form feed       U+000C
+              %x6E /          ; n    line feed       U+000A
+              %x72 /          ; r    carriage return U+000D
+              %x74 /          ; t    tab             U+0009
+              %x75 4HEXDIG )  ; uXXXX                U+XXXX
+
+      escape = %x5C              ; \
+
+      quotation-mark = %x22      ; "
+
+      unescaped = %x20-21 / %x23-5B / %x5D-10FFFF
+
+8.  String and Character Issues
+
+8.1.  Character Encoding
+
+   JSON text exchanged between systems that are not part of a closed
+   ecosystem MUST be encoded using UTF-8 [RFC3629].
+
+   Previous specifications of JSON have not required the use of UTF-8
+   when transmitting JSON text.  However, the vast majority of JSON-
+   based software implementations have chosen to use the UTF-8 encoding,
+   to the extent that it is the only encoding that achieves
+   interoperability.
+
+   Implementations MUST NOT add a byte order mark (U+FEFF) to the
+   beginning of a networked-transmitted JSON text.  In the interests of
+   interoperability, implementations that parse JSON texts MAY ignore
+   the presence of a byte order mark rather than treating it as an
+   error.
+
+
+
+
+
+
+
+Bray                         Standards Track                    [Page 9]
+
+RFC 8259                          JSON                     December 2017
+
+
+8.2.  Unicode Characters
+
+   When all the strings represented in a JSON text are composed entirely
+   of Unicode characters [UNICODE] (however escaped), then that JSON
+   text is interoperable in the sense that all software implementations
+   that parse it will agree on the contents of names and of string
+   values in objects and arrays.
+
+   However, the ABNF in this specification allows member names and
+   string values to contain bit sequences that cannot encode Unicode
+   characters; for example, "\uDEAD" (a single unpaired UTF-16
+   surrogate).  Instances of this have been observed, for example, when
+   a library truncates a UTF-16 string without checking whether the
+   truncation split a surrogate pair.  The behavior of software that
+   receives JSON texts containing such values is unpredictable; for
+   example, implementations might return different values for the length
+   of a string value or even suffer fatal runtime exceptions.
+
+8.3.  String Comparison
+
+   Software implementations are typically required to test names of
+   object members for equality.  Implementations that transform the
+   textual representation into sequences of Unicode code units and then
+   perform the comparison numerically, code unit by code unit, are
+   interoperable in the sense that implementations will agree in all
+   cases on equality or inequality of two strings.  For example,
+   implementations that compare strings with escaped characters
+   unconverted may incorrectly find that "a\\b" and "a\u005Cb" are not
+   equal.
+
+9.  Parsers
+
+   A JSON parser transforms a JSON text into another representation.  A
+   JSON parser MUST accept all texts that conform to the JSON grammar.
+   A JSON parser MAY accept non-JSON forms or extensions.
+
+   An implementation may set limits on the size of texts that it
+   accepts.  An implementation may set limits on the maximum depth of
+   nesting.  An implementation may set limits on the range and precision
+   of numbers.  An implementation may set limits on the length and
+   character contents of strings.
+
+10.  Generators
+
+   A JSON generator produces JSON text.  The resulting text MUST
+   strictly conform to the JSON grammar.
+
+
+
+
+
+Bray                         Standards Track                   [Page 10]
+
+RFC 8259                          JSON                     December 2017
+
+
+11.  IANA Considerations
+
+   The media type for JSON text is application/json.
+
+   Type name:  application
+
+   Subtype name:  json
+
+   Required parameters:  n/a
+
+   Optional parameters:  n/a
+
+   Encoding considerations:  binary
+
+   Security considerations:  See RFC 8259, Section 12
+
+   Interoperability considerations:  Described in RFC 8259
+
+   Published specification:  RFC 8259
+
+   Applications that use this media type:
+      JSON has been used to exchange data between applications written
+      in all of these programming languages: ActionScript, C, C#,
+      Clojure, ColdFusion, Common Lisp, E, Erlang, Go, Java, JavaScript,
+      Lua, Objective CAML, Perl, PHP, Python, Rebol, Ruby, Scala, and
+      Scheme.
+
+   Additional information:
+      Magic number(s): n/a
+      File extension(s): .json
+      Macintosh file type code(s): TEXT
+
+   Person & email address to contact for further information:
+      IESG
+      <iesg@ietf.org>
+
+   Intended usage:  COMMON
+
+   Restrictions on usage:  none
+
+   Author:
+      Douglas Crockford
+      <douglas@crockford.com>
+
+   Change controller:
+      IESG
+      <iesg@ietf.org>
+
+
+
+
+Bray                         Standards Track                   [Page 11]
+
+RFC 8259                          JSON                     December 2017
+
+
+   Note:  No "charset" parameter is defined for this registration.
+      Adding one really has no effect on compliant recipients.
+
+12.  Security Considerations
+
+   Generally, there are security issues with scripting languages.  JSON
+   is a subset of JavaScript but excludes assignment and invocation.
+
+   Since JSON's syntax is borrowed from JavaScript, it is possible to
+   use that language's "eval()" function to parse most JSON texts (but
+   not all; certain characters such as U+2028 LINE SEPARATOR and U+2029
+   PARAGRAPH SEPARATOR are legal in JSON but not JavaScript).  This
+   generally constitutes an unacceptable security risk, since the text
+   could contain executable code along with data declarations.  The same
+   consideration applies to the use of eval()-like functions in any
+   other programming language in which JSON texts conform to that
+   language's syntax.
+
+13.  Examples
+
+   This is a JSON object:
+
+      {
+        "Image": {
+            "Width":  800,
+            "Height": 600,
+            "Title":  "View from 15th Floor",
+            "Thumbnail": {
+                "Url":    "http://www.example.com/image/481989943",
+                "Height": 125,
+                "Width":  100
+            },
+            "Animated" : false,
+            "IDs": [116, 943, 234, 38793]
+          }
+      }
+
+   Its Image member is an object whose Thumbnail member is an object and
+   whose IDs member is an array of numbers.
+
+
+
+
+
+
+
+
+
+
+
+
+Bray                         Standards Track                   [Page 12]
+
+RFC 8259                          JSON                     December 2017
+
+
+   This is a JSON array containing two objects:
+
+      [
+        {
+           "precision": "zip",
+           "Latitude":  37.7668,
+           "Longitude": -122.3959,
+           "Address":   "",
+           "City":      "SAN FRANCISCO",
+           "State":     "CA",
+           "Zip":       "94107",
+           "Country":   "US"
+        },
+        {
+           "precision": "zip",
+           "Latitude":  37.371991,
+           "Longitude": -122.026020,
+           "Address":   "",
+           "City":      "SUNNYVALE",
+           "State":     "CA",
+           "Zip":       "94085",
+           "Country":   "US"
+        }
+      ]
+
+   Here are three small JSON texts containing only values:
+
+   "Hello world!"
+
+   42
+
+   true
+<END>
