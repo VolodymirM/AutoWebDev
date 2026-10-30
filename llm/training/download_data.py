@@ -34,6 +34,14 @@ REPOSITORY_URLS = (
 	"https://github.com/deepakbhalla/microservices-springboot-1",
 	"https://github.com/JFWenisch/elasticsearch-microservice-example",
 )
+TRAINING_FILE_PATTERNS = (
+	"**/*.html",
+	"**/*.css",
+	"**/*.java",
+	"**/*.ts",
+	"**/*.js",
+	"**/*.json",
+)
 
 
 def download_repositories(destination: Path) -> None:
@@ -61,10 +69,41 @@ def download_repositories(destination: Path) -> None:
 
 		try:
 			subprocess.run(
-				["git", "clone", "--depth", "1", repository_url, str(target)],
+				[
+					"git",
+					"clone",
+					"--depth",
+					"1",
+					"--filter=blob:none",
+					"--no-checkout",
+					repository_url,
+					str(target),
+				],
+				check=True,
+			)
+			subprocess.run(
+				["git", "-C", str(target), "sparse-checkout", "init", "--no-cone"],
+				check=True,
+			)
+			subprocess.run(
+				[
+					"git",
+					"-C",
+					str(target),
+					"sparse-checkout",
+					"set",
+					"--no-cone",
+					*TRAINING_FILE_PATTERNS,
+				],
+				check=True,
+			)
+			subprocess.run(
+				["git", "-C", str(target), "checkout", "--detach"],
 				check=True,
 			)
 		except (OSError, subprocess.CalledProcessError) as exc:
+			if target.exists():
+				rmtree(target)
 			print(f"Failed to clone {repository_url}: {exc}")
 			failed_repositories.append(repository_name)
 		else:
