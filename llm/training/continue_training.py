@@ -1,16 +1,27 @@
 """Continue Qwen2.5-Coder LoRA training from a saved checkpoint or adapter."""
 
-import argparse
 import json
-from pathlib import Path
 from typing import Any
-import subprocess
-import sys
 
-from llm.training.commonscripts.common import ensure_training_data, parse_args, collect_examples, ChatDataset, CausalLanguageModelCollator
+if __package__:
+	from .commonscripts.common import (
+		CausalLanguageModelCollator,
+		ChatDataset,
+		collect_examples,
+		ensure_training_data,
+		parse_args,
+	)
+else:
+	from commonscripts.common import (
+		CausalLanguageModelCollator,
+		ChatDataset,
+		collect_examples,
+		ensure_training_data,
+		parse_args,
+	)
 
 def main() -> None:
-	args = parse_args()
+	args = parse_args(continuing=True)
 	ensure_training_data(args.data_dir)
 	checkpoint = args.checkpoint.resolve()
 	trainer_state_path = checkpoint / "trainer_state.json"
@@ -127,10 +138,13 @@ def main() -> None:
 		learning_rate=args.learning_rate,
 		weight_decay=0.01,
 		logging_steps=10,
-		save_strategy="epoch",
+		save_strategy="steps",
+        save_steps=100,
+        save_total_limit=3,
 		fp16=device == "cuda" and not torch.cuda.is_bf16_supported(),
 		bf16=device == "cuda" and torch.cuda.is_bf16_supported(),
 		gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
 		optim="adamw_torch",
 		report_to="none",
 		remove_unused_columns=False,

@@ -2,82 +2,22 @@
 
 from typing import Any
 
-from llm.training.commonscripts.common import CHUNK_CHARACTERS, CausalLanguageModelCollator, ChatDataset, \
-    collect_examples, ensure_training_data, parse_args
-
-
-def make_messages(prompt: str, answer: str) -> list[dict[str, str]]:
-	return [
-		{"role": "user", "content": prompt.strip()},
-		{"role": "assistant", "content": answer.strip()},
-	]   
-
-
-def jsonl_messages(record: dict[str, Any]) -> list[dict[str, str]] | None:
-	messages = record.get("messages")
-	if isinstance(messages, list):
-		valid_messages = [
-			{"role": message["role"], "content": message["content"]}
-			for message in messages
-			if isinstance(message, dict)
-			and message.get("role") in {"user", "assistant"}
-			and isinstance(message.get("content"), str)
-		]
-		if len(valid_messages) >= 2 and valid_messages[-1]["role"] == "assistant":
-			return valid_messages
-
-	title = record.get("title")
-	body = record.get("body")
-	patch = record.get("fix_patch")
-	if isinstance(title, str) and isinstance(patch, str) and patch.strip():
-		prompt_parts = [f"Implement the requested code change: {title.strip()}"]
-		if isinstance(body, str) and body.strip():
-			prompt_parts.append(body.strip())
-		resolved_issues = record.get("resolved_issues")
-		if isinstance(resolved_issues, list):
-			for issue in resolved_issues:
-				if isinstance(issue, dict):
-					issue_title = issue.get("title")
-					issue_body = issue.get("body")
-					if isinstance(issue_title, str) and issue_title.strip():
-						prompt_parts.append(f"Related issue: {issue_title.strip()}")
-					if isinstance(issue_body, str) and issue_body.strip():
-						prompt_parts.append(issue_body.strip())
-		return make_messages("\n\n".join(prompt_parts), patch)
-
-	prompt = record.get("instruction", record.get("prompt", record.get("question")))
-	answer = record.get(
-		"output", record.get("completion", record.get("response", record.get("answer")))
+if __package__:
+	from .commonscripts.common import (
+		CausalLanguageModelCollator,
+		ChatDataset,
+		collect_examples,
+		ensure_training_data,
+		parse_args,
 	)
-	if isinstance(prompt, str) and isinstance(answer, str) and answer.strip():
-		context = record.get("input", record.get("context"))
-		if isinstance(context, str) and context.strip():
-			prompt = f"{prompt.strip()}\n\n{context.strip()}"
-		return make_messages(prompt, answer)
-	return None
-
-
-def split_text(text: str, limit: int = CHUNK_CHARACTERS) -> list[str]:
-	chunks: list[str] = []
-	current_lines: list[str] = []
-	current_length = 0
-	for line in text.splitlines():
-		while len(line) > limit:
-			if current_lines:
-				chunks.append("\n".join(current_lines))
-				current_lines = []
-				current_length = 0
-			chunks.append(line[:limit])
-			line = line[limit:]
-		if current_length + len(line) + 1 > limit and current_lines:
-			chunks.append("\n".join(current_lines))
-			current_lines = []
-			current_length = 0
-		current_lines.append(line)
-		current_length += len(line) + 1
-	if current_lines:
-		chunks.append("\n".join(current_lines))
-	return [chunk.strip() for chunk in chunks if chunk.strip()]
+else:
+	from commonscripts.common import (
+		CausalLanguageModelCollator,
+		ChatDataset,
+		collect_examples,
+		ensure_training_data,
+		parse_args,
+	)
 
 
 def main() -> None:
@@ -169,10 +109,13 @@ def main() -> None:
 		learning_rate=args.learning_rate,
 		weight_decay=0.01,
 		logging_steps=10,
-		save_strategy="epoch",
+		save_strategy="steps",
+        save_steps=100,
+        save_total_limit=3,
 		fp16=device == "cuda" and not torch.cuda.is_bf16_supported(),
 		bf16=device == "cuda" and torch.cuda.is_bf16_supported(),
 		gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
 		optim="adamw_torch",
 		report_to="none",
 		remove_unused_columns=False,

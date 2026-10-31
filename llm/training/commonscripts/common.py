@@ -1,19 +1,94 @@
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
-import sys
 import subprocess
+import sys
 from typing import Any
 from torch.utils.data import Dataset
-
-from llm.training.train_model import jsonl_messages, make_messages, split_text
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-3B-Instruct"
 SOURCE_EXTENSIONS = {".java", ".ts", ".js", ".html", ".css", ".json"}
 SKIP_DIRECTORIES = {".git", "node_modules", "target", "dist", "build"}
 CHUNK_CHARACTERS = 6000
 
-class ChatDataset(Dataset[dict[str, list[int]]]):
+
+def make_messages(prompt: str, answer: str) -> list[dict[str, str]]:
+	return [
+		{"role": "user", "content": prompt.strip()},
+		{"role": "assistant", "content": answer.strip()},
+	]
+
+
+def jsonl_messages(record: dict[str, Any]) -> list[dict[str, str]] | None:
+	messages = record.get("messages")
+	if isinstance(messages, list):
+		valid_messages = [
+			{"role": message["role"], "content": message["content"]}
+			for message in messages
+			if isinstance(message, dict)
+			and message.get("role") in {"user", "assistant"}
+			and isinstance(message.get("content"), str)
+		]
+		if len(valid_messages) >= 2 and valid_messages[-1]["role"] == "assistant":
+			return valid_messages
+
+	title = record.get("title")
+	body = record.get("body")
+	patch = record.get("fix_patch")
+	if isinstance(title, str) and isinstance(patch, str) and patch.strip():
+		prompt_parts = [f"Implement the requested code change: {title.strip()}"]
+		if isinstance(body, str) and body.strip():
+			prompt_parts.append(body.strip())
+		resolved_issues = record.get("resolved_issues")
+		if isinstance(resolved_issues, list):
+			for issue in resolved_issues:
+				if isinstance(issue, dict):
+					issue_title = issue.get("title")
+					issue_body = issue.get("body")
+					if isinstance(issue_title, str) and issue_title.strip():
+						prompt_parts.append(f"Related issue: {issue_title.strip()}")
+					if isinstance(issue_body, str) and issue_body.strip():
+						prompt_parts.append(issue_body.strip())
+		return make_messages("\n\n".join(prompt_parts), patch)
+
+	prompt = record.get("instruction", record.get("prompt", record.get("question")))
+	answer = record.get(
+		"output", record.get("completion", record.get("response", record.get("answer")))
+	)
+	if isinstance(prompt, str) and isinstance(answer, str) and answer.strip():
+		context = record.get("input", record.get("context"))
+		if isinstance(context, str) and context.strip():
+			prompt = f"{prompt.strip()}\n\n{context.strip()}"
+		return make_messages(prompt, answer)
+	return None
+
+
+def split_text(text: str, limit: int = CHUNK_CHARACTERS) -> list[str]:
+	chunks: list[str] = []
+	current_lines: list[str] = []
+	current_length = 0
+	for line in text.splitlines():
+		while len(line) > limit:
+			if current_lines:
+				chunks.append("\n".join(current_lines))
+				current_lines = []
+				current_length = 0
+			chunks.append(line[:limit])
+			line = line[limit:]
+		if current_length + len(line) + 1 > limit and current_lines:
+			chunks.append("\n".join(current_lines))
+			current_lines = []
+			current_length = 0
+		current_lines.append(line)
+		current_length += len(line) + 1
+	if current_lines:
+		chunks.append("\n".join(current_lines))
+	return [chunk.strip() for chunk in chunks if chunk.strip()]
+
+
+class ChatDataset(Dataset):
 	def __init__(self, examples: list[list[dict[str, str]]], tokenizer: Any, max_length: int):
 		self.samples: list[dict[str, list[int]]] = []
 		for messages in examples:
@@ -124,15 +199,19 @@ def collect_examples(data_dir: Path, max_files: int | None = None) -> list[list[
 				examples.append(make_messages(prompt, chunk))
 	return examples
 
-def parse_args() -> argparse.Namespace:
-	data_dir = Path(__file__).resolve().parent
+def parse_args(continuing: bool = False) -> argparse.Namespace:
+	data_dir = Path(__file__).resolve().parent.parent
 	parser = argparse.ArgumentParser(description=__doc__)
+	if continuing:
+		parser.add_argument("--checkpoint", type=Path, required=True)
 	parser.add_argument("--model", default=MODEL_NAME)
 	parser.add_argument("--data-dir", type=Path, default=data_dir)
 	parser.add_argument(
 		"--output-dir",
 		type=Path,
-		default=data_dir.parent / "running" / "qwen2.5-coder-3b-lora",
+		default=None
+		if continuing
+		else data_dir.parent / "running" / "qwen2.5-coder-3b-lora",
 	)
 	parser.add_argument("--max-seq-length", type=int, default=2048)
 	parser.add_argument("--epochs", type=float, default=1.0)
@@ -150,7 +229,7 @@ def ensure_training_data(data_dir: Path) -> None:
 	if not missing_folders:
 		return
 
-	download_script = Path(__file__).resolve().with_name("download_data.py")
+	download_script = Path(__file__).resolve().parent.parent / "download_data.py"
 	print(f"Missing training data folders: {', '.join(missing_folders)}. Downloading data...")
 	subprocess.run([sys.executable, str(download_script)], check=True)
 
